@@ -23,21 +23,29 @@ def is_ACU_contained_in_summary(summary: str, ACU: str, model: str = 'gpt-4') ->
 		],
 		temperature=0,
 	)
+	raw_return = completion.choices[0].message.content
 	result = completion.choices[0].message.content.lower()
 	# try parse the result into dict
+	return_dict = {'prompt_input': message_content,'llm_result': True, 'raw_return': raw_return, 'summary': summary, 'ACU': ACU, 'model': model}
+
+	def return_result(llm_result: bool):
+		new_return_dict = return_dict.copy()
+		new_return_dict['llm_result'] = llm_result
+		return new_return_dict
+
 	try:
 		result_dict = json.loads(result)
 		if result_dict['final_answer'] == 'yes':
-			return True
+			return return_result(True)
 		elif result_dict['final_answer'] == 'no':
-			return False
+			return return_result(False)
 	except:
 		if 'final_answer' in result:
 			parts = result.split('final_answer')
 			if 'yes' in parts[1]:
-				return True
+				return return_result(True)
 			elif 'no' in parts[1]:
-				return False
+				return return_result(False)
 			else:
 				raise ValueError('result is not a valid json and doesn\'t contain final_answer')
 		else:
@@ -276,7 +284,8 @@ example_summary_data = \
 	}
 # %%
 
-datapoint = cnndm_test[0]
+datapoint = cnndm_test[10]
+datapoint_total_result = []
 for model_name in datapoint['system_outputs'].keys():
 	# model_name = 'frost'
 	# for each summary, evaluate if LLM can correctly identify if ACU is contained inside the summary
@@ -285,18 +294,24 @@ for model_name in datapoint['system_outputs'].keys():
 
 	# compare LLM results with human annotations, calculate precision and recall
 	human_results = datapoint['annotations'][model_name]['acu_labels']  # 1 if contained, 0 otherwise
-	llm_results = [0 for _ in range(10)]
-	for i in range(10):
+	llm_results = [0 for _ in range(len(ACU_texts))]
+	for i in range(len(ACU_texts)):
 		ACU_text = ACU_texts[i]
-		llm_result = is_ACU_contained_in_summary(summary_text,
-												 ACU_text, model='gpt-4')  # True if LLM think ACU is contained in summary, False otherwise
-		llm_results[i] = int(llm_result)
+		result_dict = is_ACU_contained_in_summary(summary_text,
+												 ACU_text, model='gpt-3.5-turbo')  # True if LLM think ACU is contained in summary, False otherwise
+
+		llm_results[i] = int(result_dict['llm_result'])
 
 		# print false positive cases
-		# if llm_result == 1 and human_results[i] == 0:
-		# 	print('summary: ', summary_text)
-		# 	print('ACI', ACU_text)
-		# 	print()
+		if llm_results[i] == 1 and human_results[i] == 0:
+			print('false positive case:')
+			print(result_dict)
+			# print('summary: ', summary_text)
+			# print('ACU: ', ACU_text)
+			print()
+		if llm_results[i] == 0 and human_results[i] == 1:
+			print('false negative case:')
+			print(result_dict)
 
 
 	def calculate_precision_and_recall(ground_truth, hypothesis):
@@ -327,8 +342,9 @@ for model_name in datapoint['system_outputs'].keys():
 
 		return precision, recall
 
-
-	print('model_name:', model_name, calculate_precision_and_recall(human_results, llm_results))
+	precision_val, recall_val = calculate_precision_and_recall(human_results, llm_results)
+	print('model_name:', model_name, precision_val, recall_val)
+	datapoint_total_result.append({'model_name': model_name, 'precision': precision_val, 'recall': recall_val})
 
 
 # %%
