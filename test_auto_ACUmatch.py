@@ -13,7 +13,7 @@ cnndm_test = load_dataset("Salesforce/rose", "cnndm_test")["data"]
 openai.api_key = OPENAI_API_KEY
 # %%
 def is_ACU_contained_in_summary(summary: str, ACU: str, model: str = 'gpt-4') -> bool:
-	message_content = f"""Please determine if the key fact is contained in the article. For the key fact to be considered to be contained, all details of the key fact must be present in the article. For example, the key fact of "A hates B" is **not contained** in the article "A hangout with B and they left unhappily." The data is shown here:\n{{"article": "{summary}", "key fact": "{ACU}"}}\nNow give your answer, only answer Yes or No."""
+	message_content = f"""Please determine if the key fact is contained in the article. For the key fact to be considered to be contained, all details of the key fact must be present in the article. For example, the key fact of "A hates B" is **not contained** in the article "A hangout with B and they left unhappily." The data is shown here:\n{{"article": "{summary}", "key_fact": "{ACU}"}}\nNow you need to think step by step in determining whether the key fact is contained in the article, and then give a final answer. Please present the thinking and final answer in the following format: \n{{"thinking_process": "...", \n"final_answer": "yes"/"no"}}"""
 	completion = openai.ChatCompletion.create(
 		model=model,
 		messages=[
@@ -22,11 +22,29 @@ def is_ACU_contained_in_summary(summary: str, ACU: str, model: str = 'gpt-4') ->
 			{"role": "user", "content": message_content}
 		],
 		temperature=0,
-		max_tokens=10,
 	)
 	result = completion.choices[0].message.content.lower()
-	assert 'yes' in result or 'no' in result
-	return 'yes' in result
+	# try parse the result into dict
+	try:
+		result_dict = json.loads(result)
+		if result_dict['final_answer'] == 'yes':
+			return True
+		elif result_dict['final_answer'] == 'no':
+			return False
+	except:
+		if 'final_answer' in result:
+			parts = result.split('final_answer')
+			if 'yes' in parts[1]:
+				return True
+			elif 'no' in parts[1]:
+				return False
+			else:
+				raise ValueError('result is not a valid json and doesn\'t contain final_answer')
+		else:
+			raise ValueError('result is not a valid json and doesn\'t contain final_answer')
+
+	# assert 'yes' in result or 'no' in result
+	# return 'yes' in result
 
 
 example_summary_data = \
@@ -274,10 +292,11 @@ for model_name in datapoint['system_outputs'].keys():
 												 ACU_text, model='gpt-4')  # True if LLM think ACU is contained in summary, False otherwise
 		llm_results[i] = int(llm_result)
 
-		if llm_result == 1 and human_results[i] == 0:
-			print('summary: ', summary_text)
-			print('ACI', ACU_text)
-			print()
+		# print false positive cases
+		# if llm_result == 1 and human_results[i] == 0:
+		# 	print('summary: ', summary_text)
+		# 	print('ACI', ACU_text)
+		# 	print()
 
 
 	def calculate_precision_and_recall(ground_truth, hypothesis):
@@ -314,7 +333,7 @@ for model_name in datapoint['system_outputs'].keys():
 
 # %%
 print()
-# gpt3.5 turbo result 1
+# gpt3.5 turbo result 1 (raw result_
 # model_name: bart (1.0, 1.0)
 # model_name: gold (0.42857142857142855, 1.0)
 # model_name: pegasus (0.375, 1.0)
@@ -327,3 +346,5 @@ print()
 # model_name: glob (0.5714285714285714, 1.0)
 # model_name: matchsum (0.5714285714285714, 1.0)
 # model_name: brio-ext (0.7142857142857143, 1.0)
+
+# gpt4 with chain of thought and formatted format
